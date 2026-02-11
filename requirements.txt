@@ -1,0 +1,21 @@
+moviepy == 1.0.3
+mysql == 0.0.3
+mysql-connector-python==9.1.0
+numpy == 1.23.5
+opencv-python >= 4.9.0.80,<=4.11.0.86 #moze byt aj 4.11.0.86
+pillow >=10.2.0,<= 10.3.0 #moze byt aj 10.2.0
+ffmpeg == 1.4
+ffmpeg-python == 0.2.0
+huggingface-hub == 0.26.1
+pandas >= 2.2.1 #asi aj 2.2.3 moze byt
+tensorflow == 2.12.1
+#ale ak ma byt kompatibilna s GPU treba specifikovat zo stranky torchu podla typu gpu https://pytorch.org/
+#konkretne pre moju funguje pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+transformers >= 4.48.0
+tqdm >=4.66.2,<= 4.66.4 #moze byt aj  4.66.2 asi
+lxml>=5.3.1
+PySide6>=6.8.2.1
+--index-url https://download.pytorch.org/whl/cu126
+torch
+torchvision
+torchaudio
