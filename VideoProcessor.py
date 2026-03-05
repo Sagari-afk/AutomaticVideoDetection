@@ -1,6 +1,8 @@
 import sys
 import xml.etree.ElementTree as ET
 import mysql.connector
+
+from ObjectDetector import ObjectDetector
 import config
 import subprocess
 import OperatingSystemCheck
@@ -321,7 +323,7 @@ class VideoProcessor:
 
     @staticmethod
     def run_object_detections(path, threshold, image_size, result_dict):
-        object_detections_path = VideoProcessor.get_object_detections(path, threshold, image_size)
+        object_detections_path = ObjectDetector.get_object_detections(path, threshold, image_size)
         result_dict["object"] = object_detections_path
 
     @staticmethod
@@ -349,50 +351,6 @@ class VideoProcessor:
             print("No detections found")
             raise Exception("No detections found")
         return shot_detections_path
-
-    @staticmethod
-    def get_object_detections( video_path, tresshold=0.8, image_size=416):
-        norm_path = video_path.replace("\\", "/")
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        yolo_path = os.path.join(script_dir, "YOLOv7")
-        yolo_call = [sys.executable, "detect.py",
-                     "--weights", "yolov7.pt",
-                     "--conf", f"{tresshold}",
-                     "--img-size", f"{image_size}",
-                     "--device", "cpu",
-                     "--source", f"{norm_path}",
-                     "--save-txt", "--nosave"]
-        detection_complete = False
-        try:
-            print("YOLO detection START")
-            process = subprocess.Popen(yolo_call, cwd=yolo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       text=True, bufsize=1)
-
-            for line in process.stdout:
-                print("DOCKER CALL YOLO (STD_OUT): ", line.strip())
-            for line in process.stderr:
-                print("DOCKER CALL YOLO (STD_ERR): ", line.strip())
-
-            process.wait()
-
-            if process.returncode == 0:
-                detection_complete = True
-            else:
-                print(f"(YOLOv7) Object detection failed")
-        except subprocess.CalledProcessError as e:
-            print(f"Exception during yolo detection: {e.stderr}")
-        if detection_complete:
-            main_dir = Path(__file__).parent.absolute()
-
-            video_name = os.path.basename(norm_path)
-            norm_name, end = os.path.splitext(video_name)
-            new_name = f"{norm_name}_detect.xml"
-            yolo_output = main_dir / 'YOLOv7/runs/detect' / new_name
-            print("YOLO detection END")
-            return yolo_output
-        else:
-            print("YOLO detection EXCEPTION")
-            raise Exception("No yolo detections file found")
 
     def save_detections(self, video_id, xml_path, detection_type):
         db_command = "INSERT INTO detect_files (video_id, path, detect_type) values (%s, %s, %s)"
