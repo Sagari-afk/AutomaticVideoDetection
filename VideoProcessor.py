@@ -2,6 +2,7 @@ import sys
 import xml.etree.ElementTree as ET
 import mysql.connector
 
+from ActivityRecognizer import ActivityRecognizer
 from ObjectDetector import ObjectDetector
 import config
 import subprocess
@@ -32,7 +33,7 @@ class VideoProcessor:
         warm_up_sentence = self.description_generator.translate_sentence(warm_up) #to warm up models
         self.description_generator.translate_sentence(warm_up_sentence)
 
-    def process_video(self, path, saving_path, threshold=0.8, image_size=416):
+    def process_video(self, path, saving_path, threshold=0.2, image_size=1280):
 
         video_name = os.path.basename(path)
         name, end = os.path.splitext(video_name)
@@ -177,10 +178,9 @@ class VideoProcessor:
                                           text=True)
             video_duration = float(vid_duration.stdout.strip())
             print(f"video is : {video_duration} seconds long")
-            if video_duration <= 20:
-                process_activity = multiprocessing.Process(target=VideoProcessor.run_activity_detections,
-                                                           args=(path, result_dict))
-                processes.append(process_activity)
+            process_activity = multiprocessing.Process(target=VideoProcessor.run_activity_detections,
+                                                       args=(path, result_dict))
+            processes.append(process_activity)
 
         for process in processes:
             process.start()
@@ -415,43 +415,14 @@ class VideoProcessor:
 
     @staticmethod
     def get_activity_detections(video_path):
-        main_dir = Path(__file__).parent.absolute()
-        detections_path = os.path.abspath(os.path.join(main_dir, 'ActionRecognition', 'Detections')).replace("\\", "/")
+        print("Start of activity detection...")
 
-        norm_path = video_path.replace("\\", "/")
-        video_name = os.path.basename(norm_path)
-        dir_name = os.path.dirname(norm_path)
-        dock_path = os.path.abspath(dir_name).replace("\\", "/")
-        activity_recognition_call = ["docker", "run", "--rm",
-                                     "-v", f"{dock_path}:/TestVideos",
-                                     "-v", f"{detections_path}:/ActionRecognition/Detections",
-                                     "-w", "/ActionRecognition",
-                                     "action-recognition", "python", "ActivityDetector.py",
-                                     f"/TestVideos/{video_name}"]
-        detection_complete = False
-        try:
-            process = subprocess.Popen(activity_recognition_call, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       text=True, bufsize=1)
+        recognizer = ActivityRecognizer()
+        activity_output = recognizer.process_video(video_path)
 
-            for line in process.stdout:
-                print("DOCKER CALL ACTIVITY DT (STD_OUT): ", line.strip())
-            for line in process.stderr:
-                print("DOCKER CALL ACTIVITY DT (STD_ERR): ", line.strip())
-
-            process.wait()
-
-            if process.returncode == 0:
-                detection_complete = True
-            else:
-                print(f"Activity detection failed")
-        except subprocess.CalledProcessError as e:
-            print(f"Activity recognition failed: {e.stderr}")
-
-        if detection_complete:
-            main_dir = Path(__file__).parent.absolute()
-            video_name, suffix = os.path.splitext(video_name)
-            activity_output = main_dir / 'ActionRecognition/Detections' / f"{video_name}_activity.xml"
-            return activity_output
+        print("End of activity detection...")
+        print(f"Activity_output: {activity_output}")
+        return activity_output
 
     def add_video_to_database(self, video_path):
         video_path = Path(video_path)

@@ -44,6 +44,8 @@ class SentenceMaker:
 
 
     def connect_sentence(self, words):
+        print(f"All words: {', '.join(words)}")
+
         prompt = (f"Given these words: {', '.join(words)}, create a meaningful sentence that describes an action"
                   f" or relationship involving all of them. "
                   f"Each word represents a distinct object, so ensure they are included accurately in your sentence. ")
@@ -51,6 +53,8 @@ class SentenceMaker:
 
         outputs = self.model.generate(inputs.input_ids, max_new_tokens=20, temperature=0.3, do_sample=True, no_repeat_ngram_size=2)
         sentence = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+        print(sentence)
 
         del inputs
         del outputs
