@@ -1,6 +1,8 @@
 import sys
 import xml.etree.ElementTree as ET
 import mysql.connector
+
+from ObjectDetector import ObjectDetector
 import config
 import subprocess
 import OperatingSystemCheck
@@ -26,9 +28,6 @@ class VideoProcessor:
     def __init__(self):
         self.load_database()
         self.description_generator = sen.SentenceMaker()
-        warm_up = self.description_generator.connect_sentence(["person", "dog", "walking"])
-        warm_up_sentence = self.description_generator.translate_sentence(warm_up) #to warm up models
-        self.description_generator.translate_sentence(warm_up_sentence)
 
     def process_video(self, path, saving_path, threshold=0.8, image_size=416):
 

@@ -11,7 +11,7 @@ class ObjectDetector:
         video_p = Path(norm_path)
         stem = video_p.stem
 
-        model = YOLO("yolov8s.pt")
+        model = YOLO("yoloe-26s-seg.pt")
         root = ET.Element("video_object_detection")
 
         frame_id = 1
@@ -40,7 +40,7 @@ class ObjectDetector:
             raise Exception(f"YOLO detection failed: {e}")
 
         main_dir = Path(__file__).parent.absolute()
-        xml_out = main_dir / "YOLOv8" / "runs" / "detect" / f"{stem}_detect.xml"
+        xml_out = main_dir / "YOLOv26s" / "runs" / "detect" / f"{stem}_detect.xml"
         xml_out.parent.mkdir(parents=True, exist_ok=True)
 
         tree = ET.ElementTree(root)
