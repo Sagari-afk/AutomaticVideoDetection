@@ -9,15 +9,18 @@
 # words = ["person", "horse"]
 # words = ["cat", "bowl", "milk"]
 # words = ["person", "eat", "burger"]
+import math
 import sys
 
 # result = SentenceMaker().connect_sentence(words)
 # print(result)
 
 import torch
+import requests
 from transformers import T5Tokenizer, T5ForConditionalGeneration,  M2M100ForConditionalGeneration, M2M100Tokenizer
 import xml.etree.ElementTree as ET
 import XmlHandler
+from SceneObjectSumarizer import SceneObjectsSummarizer
 
 
 class SentenceMaker:
@@ -41,7 +44,7 @@ class SentenceMaker:
         self.tgt_language = "sk"
         self.tokenizer_ts.src_language = self.src_language
 
-
+        self.summarizer = SceneObjectsSummarizer()
 
     def connect_sentence(self, words):
         print(f"All words: {', '.join(words)}")
@@ -60,6 +63,127 @@ class SentenceMaker:
         del outputs
         return sentence
 
+    def check_ollama(self):
+        """Kontrola Ollama serveru."""
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            return response.status_code == 200
+        except:
+            return False
+
+    def llama_model(self):
+        print("[LLM] Checking Ollama server...")
+
+        if not self.check_ollama():
+            print("\n" + "=" * 60)
+            print("X CHYBA: Ollama nie je spustená!")
+            print("=" * 60)
+            print("\nSpusti Ollama server v termináli:")
+            print("  → ollama serve")
+            print("\nPotom skontroluj, či je nainštalovaný model:")
+            print("  → ollama list")
+            print("\nAk model nie je nainštalovaný, stiahni ho")
+            print("=" * 60 + "\n")
+            raise ConnectionError("Ollama server is not running.")
+
+        print(f"[LLM] Ollama server is running.")
+
+    def generate_scene_description(self, scene_objects):
+        summary_text = self.summarizer.summarize_scene_objects(scene_objects)
+        print(summary_text)
+
+        # prompt = f'''
+        #     You are a video scene description model.
+        #     Based on the following scene summary, write a natural and meaningful English description of the whole scene.
+        #     Include the main action and relevant secondary objects if needed.
+        #     {scene_objects}
+        # '''
+        #
+        # inputs = self.tokenizer(
+        #     prompt,
+        #     return_tensors="pt",
+        #     truncation=True,
+        #     max_length=512
+        # )
+        #
+        # torch.cuda.empty_cache()
+        #
+        # inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        #
+        # outputs = self.model.generate(
+        #     input_ids=inputs["input_ids"],
+        #     attention_mask=inputs["attention_mask"],
+        #     max_new_tokens=20,
+        #     temperature=0.3,
+        #     do_sample=True
+        # )
+        # sentence = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        #
+        # print(sentence)
+
+        if not scene_objects:
+            return "No objects detected in the image."
+
+        prompt = f"""
+            You are a video scene understanding model.
+            
+            Describe what is happening in the scene in natural English.
+            
+            Use all tracks and interactions together. 
+            Do not describe strongly overlapping and consistently aligned interacting objects as merely approaching each other if they already move together as one unit.            
+            If multiple objects are strongly and consistently related over time, describe them as participating in a single meaningful interaction or joint action rather than as separate nearby objects.
+            Prefer high-level interaction-based descriptions over low-level descriptions based only on closeness, overlap, or relative position.
+            Prefer meaningful actions over separate object lists. 
+            Ignore isolated false detections and brief missing detections. 
+            Do not explain the input or mention technical details. 
+            Output only the final description.
+
+            {summary_text}
+            """
+
+        payload = {
+            "model": "llama3.1:8b",
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.2,
+                "top_p": 0.9,
+                "num_predict": 80
+            }
+        }
+
+        try:
+            response = requests.post("http://localhost:11434/api/generate", json=payload, timeout=500)
+            response.raise_for_status()
+            result = response.json()
+            generated = result.get("response", "").strip()
+
+            # čistenie výstupu
+            import re
+            generated = re.sub(r'[<>`´=]+', '', generated)
+            generated = generated.replace('\n', ' ').strip()
+
+            if not generated:
+                return "Failed to generate caption."
+
+            # kapitalizácia a bodka
+            if generated and not generated[0].isupper():
+                generated = generated[0].upper() + generated[1:]
+            if generated and not generated.endswith('.'):
+                generated += '.'
+
+            print(generated)
+
+            return generated
+
+        except Exception as e:
+            print(f"[LLM ERROR] Ollama generation failed: {e}")
+
+            return "Failed to generate caption."
+        #
+        # del inputs
+        # del outputs
+        # return sentence
 
 
     def connect_desc(self, sentences):

@@ -41,7 +41,7 @@ class GUIThreadWorker(QObject):
     # progress = Signal(int)
     db_closed = Signal(bool)
 
-    def __init__(self, video_path, saving_path, threshold=0.8, image_size=416):
+    def __init__(self, video_path, saving_path, threshold=0.2, image_size=1920):
         super().__init__()
         self.video_path = video_path
         self.saving_path = saving_path

@@ -1,6 +1,9 @@
 import sys
 import xml.etree.ElementTree as ET
+
+import cv2
 import mysql.connector
+from PIL import Image
 
 from ObjectDetector import ObjectDetector
 import config
@@ -29,7 +32,7 @@ class VideoProcessor:
         self.load_database()
         self.description_generator = sen.SentenceMaker()
 
-    def process_video(self, path, saving_path, threshold=0.8, image_size=416):
+    def process_video(self, path, saving_path, threshold=0.2, image_size=1920):
 
         video_name = os.path.basename(path)
         name, end = os.path.splitext(video_name)
@@ -94,58 +97,63 @@ class VideoProcessor:
                 end_frame = scene[1]
                 uniq_objects = set()
                 uniq_activities = set()
-                unique_desc_data = set()
-                sentences_data = {}
+                # unique_desc_data = set()
+                # sentences_data = {}
 
-                if scene_activities:
-                    unique_obj_frames = set(scene_objects) | set(scene_activities)
-                else:
-                    unique_obj_frames = set(scene_objects)
-                sentences = []
-                for frame in unique_obj_frames:
-                    if start_frame <= frame <= end_frame:
-                        objects = tuple(scene_objects.get(frame, []))
-                        if self.activities_detected:
-                            activity = scene_activities.get(frame, None)
-                        else:
-                            activity = None
+                # if scene_activities:
+                #     unique_obj_frames = set(scene_objects) | set(scene_activities)
+                # else:
+                #     unique_obj_frames = set(scene_objects)
+                # sentences = []
+                # for frame in unique_obj_frames:
+                #     if start_frame <= frame <= end_frame:
+                #         objects = tuple(scene_objects.get(frame, []))
+                #         if self.activities_detected:
+                #             activity = scene_activities.get(frame, None)
+                #         else:
+                #             activity = None
+                #
+                #         uniq_objects.update(objects)
+                #
+                #         if activity and activity not in uniq_activities:
+                #             uniq_activities.add(activity)
+                #
+                #         combined_contents = (objects, activity)
+                #         if combined_contents not in unique_desc_data:
+                #             unique_desc_data.add(combined_contents)
+                #             sentences_data[frame] = combined_contents
+                #             # print(f"added UNIQUE COMBINATION in scene {frame} combination {combined_contents}")
+                #             if combined_contents is not None and len(combined_contents) > 0:
+                #                 if activity is None:
+                #                     if objects is not None and len(objects) > 0:
+                #                         generated_sentence = self.description_generator.connect_sentence(objects)
+                #                     else:
+                #                         generated_sentence = None
+                #                 else:
+                #                     combined_contents_clear = list(chain.from_iterable(combined_contents))
+                #                     generated_sentence = (self.description_generator
+                #                                           .connect_sentence(combined_contents_clear))
+                #                 if generated_sentence is not None:
+                #                     sentences.append(generated_sentence)
+                # if sentences and len(sentences) > 0:
+                #     generated_desc2 = self.description_generator.connect_desc(sentences)
+                #     generated_desc3 = self.description_generator.connect_desc(sentences)
+                # else:
+                #     generated_desc2 = None
+                #     generated_desc3 = None
 
-                        uniq_objects.update(objects)
+                desc1 = self.description_generator.generate_scene_description(scene_objects)
 
-                        if activity and activity not in uniq_activities:
-                            uniq_activities.add(activity)
-
-                        combined_contents = (objects, activity)
-                        if combined_contents not in unique_desc_data:
-                            unique_desc_data.add(combined_contents)
-                            sentences_data[frame] = combined_contents
-                            # print(f"added UNIQUE COMBINATION in scene {frame} combination {combined_contents}")
-                            if combined_contents is not None and len(combined_contents) > 0:
-                                if activity is None:
-                                    if objects is not None and len(objects) > 0:
-                                        generated_sentence = self.description_generator.connect_sentence(objects)
-                                    else:
-                                        generated_sentence = None
-                                else:
-                                    combined_contents_clear = list(chain.from_iterable(combined_contents))
-                                    generated_sentence = (self.description_generator
-                                                          .connect_sentence(combined_contents_clear))
-                                if generated_sentence is not None:
-                                    sentences.append(generated_sentence)
-                if sentences and len(sentences) > 0:
-                    generated_desc2 = self.description_generator.connect_desc(sentences)
-                    generated_desc3 = self.description_generator.connect_desc(sentences)
-                else:
-                    generated_desc2 = None
-                    generated_desc3 = None
                 scene_contents.append({
                     "start_frame": start_frame,
                     "end_frame": end_frame,
                     "objects": list(uniq_objects),
                     "activities": list(uniq_activities),
-                    "description1": " ".join(sentences) if sentences and len(sentences) > 0 else None,
-                    "description2": generated_desc2,
-                    "description3": generated_desc3
+                    "description1": desc1
+
+                    # "description1": " ".join(sentences) if sentences and len(sentences) > 0 else None,
+                    # "description2": generated_desc2,
+                    # "description3": generated_desc3
                 })
 
             self.save_scene_objects_n_activities(scene_contents, path_to_desc, video_id)
@@ -155,45 +163,49 @@ class VideoProcessor:
 
     @staticmethod
     def process_objects_n_activities(path, threshold, image_size, object_detections_path, activity_detections_path):
-        print("STARTED PROCESSING ACTIVITY AND OBJECT DETECTION")
+        print("STARTED AND OBJECT DETECTION")
         processes = []
 
-        result_manager = multiprocessing.Manager()
-        result_dict = result_manager.dict()
+        # result_manager = multiprocessing.Manager()
+        # result_dict = result_manager.dict()
+        result_dict = {"object": "", "activity": ""}
         if object_detections_path is None:
-            process_yolo = multiprocessing.Process(target=VideoProcessor.run_object_detections, args=(path, threshold,
-                                                                                            image_size,
-                                                                                            result_dict))
-            processes.append(process_yolo)
+            VideoProcessor.run_object_detections(path, threshold, image_size, result_dict)
+            # process_yolo = multiprocessing.Process(target=VideoProcessor.run_object_detections, args=(path,
+            #                                                                                         threshold,
+            #                                                                                         image_size,
+            #                                                                                         result_dict))
+            # processes.append(process_yolo)
 
-        if activity_detections_path is None:
-            check_duration_command = ["ffprobe", "-v", "error",
-                                      "-show_entries", "format=duration", "-of",
-                                      "default=noprint_wrappers=1:nokey=1", path]
-            vid_duration = subprocess.run(check_duration_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          text=True)
-            video_duration = float(vid_duration.stdout.strip())
-            print(f"video is : {video_duration} seconds long")
-            if video_duration <= 20:
-                process_activity = multiprocessing.Process(target=VideoProcessor.run_activity_detections,
-                                                           args=(path, result_dict))
-                processes.append(process_activity)
+        # TODO: ACTIVITY DETECTION will be fixed in the future!
+        # if activity_detections_path is None:
+        #     check_duration_command = ["ffprobe", "-v", "error",
+        #                               "-show_entries", "format=duration", "-of",
+        #                               "default=noprint_wrappers=1:nokey=1", path]
+        #     vid_duration = subprocess.run(check_duration_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        #                                   text=True)
+        #     video_duration = float(vid_duration.stdout.strip())
+        #     print(f"video is : {video_duration} seconds long")
+        #     if video_duration <= 20:
+        #         process_activity = multiprocessing.Process(target=VideoProcessor.run_activity_detections,
+        #                                                    args=(path, result_dict))
+        #         processes.append(process_activity)
 
-        for process in processes:
-            process.start()
-            print("Process started: ", process.name)
+        # for process in processes:
+        #     process.start()
+        #     print("Process started: ", process.name)
 
-        for process in processes:
-            process.join()
-            print("Process join: ", process.name)
+        # for process in processes:
+        #     process.join()
+        #     print("Process join: ", process.name)
 
         if object_detections_path is None:
             object_detections_path = result_dict.get("object")
 
-        if activity_detections_path is None:
-            activity_detections_path = result_dict.get("activity")
+        # if activity_detections_path is None:
+        #     activity_detections_path = result_dict.get("activity")
 
-        print("PROCESSING ACTIVITY AND OBJECT DETECTION END")
+        print("PROCESSING OBJECT DETECTION END")
 
         return object_detections_path, activity_detections_path
 
@@ -263,12 +275,12 @@ class VideoProcessor:
             if scene.get("description1"):
                 desc1_element = ET.SubElement(scene_element, "description")
                 desc1_element.text = scene["description1"]
-            if scene.get("description2"):
-                desc2_element = ET.SubElement(scene_element, "description")
-                desc2_element.text = scene["description2"]
-            if scene.get("description3"):
-                desc3_element = ET.SubElement(scene_element, "description")
-                desc3_element.text = scene["description3"]
+            # if scene.get("description2"):
+            #     desc2_element = ET.SubElement(scene_element, "description")
+            #     desc2_element.text = f'v2: {scene["description2"]}'
+            # if scene.get("description3"):
+            #     desc3_element = ET.SubElement(scene_element, "description")
+            #     desc3_element.text = f'v3: {scene["description3"]}'
             scene_id += 1
 
         tree = ET.ElementTree(root)
@@ -292,15 +304,35 @@ class VideoProcessor:
             elem.clear()
         return scenes
 
-    def load_objects(self, object_detections_path):
+    from lxml import etree
 
+    def load_objects(self, object_detections_path):
         scene_objects = {}
         content = etree.iterparse(object_detections_path, events=("end",), tag="frame")
 
         for event, elem in content:
             frame_id = int(elem.find("id").text)
-            objects = [obj.text for obj in elem.findall("object")]
-            scene_objects[frame_id] = objects
+            detections = []
+
+            for det in elem.findall("object_detection"):
+                obj_name = det.findtext("object")
+                confidence = float(det.findtext("confidence"))
+
+                bbox_elem = det.find("bbox")
+                bbox = {
+                    "x1": float(bbox_elem.findtext("x1")),
+                    "y1": float(bbox_elem.findtext("y1")),
+                    "x2": float(bbox_elem.findtext("x2")),
+                    "y2": float(bbox_elem.findtext("y2")),
+                }
+
+                detections.append({
+                    "object": obj_name,
+                    "confidence": confidence,
+                    "bbox": bbox
+                })
+
+            scene_objects[frame_id] = detections
             elem.clear()
 
         return scene_objects
@@ -372,7 +404,7 @@ class VideoProcessor:
         found_os = OperatingSystemCheck.operating_system_check()
         detection_complete = False
         if found_os == "Windows":
-            transnet_call = ["docker", "run", "--rm", "--gpus", "1",
+            transnet_call = ["docker", "run", "--rm", "--cpus", "1",
                              "-v", f"{dir_name}:/tmp", "transnet",
                              "transnetv2_predict",
                              f"/tmp/{video_name}"
@@ -393,6 +425,16 @@ class VideoProcessor:
                 detection_path = (dir_name.replace("/", "\\") + "\\"
                                   + str_vid_name.replace(ext, f"{ext}.scenes.txt")) #format transnet output
                 root = ET.Element("shot_boundaries")
+
+                # Getting the resolution of img
+                vid = cv2.VideoCapture(video_path)
+                height = vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                width = vid.get(cv2.CAP_PROP_FRAME_WIDTH)
+
+                ET.SubElement(root, "resolution").text = str(f"{width}x{height}")
+                # ET.SubElement(root, "duration").text = str(f"{video_duration}s")
+                # ET.SubElement(root, "frames").text = str(f"{video_duration}s")
+
                 with open(detection_path, "r") as txt_file:
                     for line in txt_file:
                         scene = ET.SubElement(root, "scene")
