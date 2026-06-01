@@ -125,30 +125,48 @@ class SentenceMaker:
             return "No objects detected in the image."
 
         prompt = f"""
-            You are a video scene understanding model.
-            
-            Describe what is happening in the scene in natural English.
-            
-            Use all tracks and interactions together. 
-            Do not describe strongly overlapping and consistently aligned interacting objects as merely approaching each other if they already move together as one unit.            
-            If multiple objects are strongly and consistently related over time, describe them as participating in a single meaningful interaction or joint action rather than as separate nearby objects.
-            Prefer high-level interaction-based descriptions over low-level descriptions based only on closeness, overlap, or relative position.
-            Prefer meaningful actions over separate object lists. 
-            Ignore isolated false detections and brief missing detections. 
-            Do not explain the input or mention technical details. 
-            Output only the final description.
+            You are an action-oriented video captioning assistant.
 
-            {summary_text}
+Convert the technical scene summary into a natural, coherent description of the video.
+
+The input may contain separate tracks for different detected object categories. Some of these separate tracks may actually describe parts of the same real-world activity. Your task is to infer the most likely scene-level events from the tracks.
+
+Internal interpretation steps:
+1. Group related tracks when they overlap for many frames, move in similar directions, appear at similar times, or have a plausible real-world relationship.
+2. Treat long-lasting overlap as a strong visual association cue, even if physical contact is not fully confirmed.
+3. Decide whether the scene is better described as several separate objects or as one or more participants/groups performing an activity.
+4. Convert technical movement into natural actions.
+5. Mention uncertainty only when necessary, using “appears to,” “seems to,” “likely,” or “may.”
+
+Important constraints:
+- Do not list tracks one by one.
+- Do not mention track IDs, frame numbers, detection counts, confidence, thresholds, or bounding boxes.
+- Do not over-focus on screen coordinates.
+- Do not claim definite physical contact unless the data clearly supports it.
+- Do not say an object is physically still only because it stays in the same part of the frame; the camera may be moving.
+- Do not describe only motion. Describe likely actions and relationships.
+- Do not invent unsupported dramatic events.
+- If objects are visually associated for much of the video, describe a plausible interaction or shared activity in a cautious but meaningful way.
+- If several objects appear to move in the same direction or form a group, describe them as moving together, following one another, or progressing through the scene.
+
+Use natural verbs such as:
+moves, travels, proceeds, follows, leads, approaches, passes, continues, recedes, advances, stays near, remains alongside, appears connected to, moves together with, crosses, enters, leaves, accompanies, interacts.
+
+Write one polished paragraph of 3–5 sentences.
+Output only the final description.
+
+Scene summary:
+{summary_text}
             """
 
         payload = {
-            "model": "llama3.1:8b",
+            "model": "mistral-small:24b",
             "prompt": prompt,
             "stream": False,
             "options": {
                 "temperature": 0.2,
-                "top_p": 0.9,
-                "num_predict": 80
+                "top_p": 0.8,
+                "num_ctx": 4096
             }
         }
 

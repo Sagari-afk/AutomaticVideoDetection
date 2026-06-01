@@ -35,8 +35,11 @@ class SceneObjectsSummarizer:
         self.strong_interaction_min_close_ratio = strong_interaction_min_close_ratio
         self.strong_interaction_min_same_direction = strong_interaction_min_same_direction
         self.strong_interaction_min_iou_ratio = strong_interaction_min_iou_ratio
+        self.frame_width = None
+        self.frame_height = None
 
     def summarize_scene_objects(self, scene_objects):
+        self._update_frame_size(scene_objects)
         filtered = self._filter_low_confidence(scene_objects)
         tracks = self._build_tracks(filtered)
         tracks = self._remove_short_tracks(tracks)
@@ -61,13 +64,8 @@ class SceneObjectsSummarizer:
         return "\n".join(lines)
 
     def build_scene_analysis(self, scene_objects):
-        """
-        Если нужен не только текст, но и структура:
-        {
-            "tracks": [...],
-            "interactions": [...]
-        }
-        """
+
+        self._update_frame_size(scene_objects)
         filtered = self._filter_low_confidence(scene_objects)
         tracks = self._build_tracks(filtered)
         tracks = self._remove_short_tracks(tracks)
@@ -91,6 +89,27 @@ class SceneObjectsSummarizer:
             result[frame_id] = valid
 
         return result
+
+    def _update_frame_size(self, scene_objects):
+        width = None
+        height = None
+        max_x = 0.0
+        max_y = 0.0
+
+        for detections in scene_objects.values():
+            for det in detections:
+                width = width or det.get("frame_width")
+                height = height or det.get("frame_height")
+
+                bbox = det.get("bbox")
+                if not bbox:
+                    continue
+
+                max_x = max(max_x, bbox.get("x2", 0.0))
+                max_y = max(max_y, bbox.get("y2", 0.0))
+
+        self.frame_width = float(width) if width else max_x or None
+        self.frame_height = float(height) if height else max_y or None
 
     def _build_tracks(self, scene_objects):
         frames = sorted(scene_objects.keys())
@@ -303,7 +322,6 @@ class SceneObjectsSummarizer:
         iou_ratio = stats["iou_hits"] / max(1, shared_count)
         same_direction = stats["same_direction_ratio"]
 
-        # сильная интеракция: долго рядом, часто пересекаются/сильно близки, двигаются похоже
         if (
                 shared_count >= self.strong_interaction_min_shared_frames
                 and close_ratio >= self.strong_interaction_min_close_ratio
@@ -313,7 +331,6 @@ class SceneObjectsSummarizer:
         ):
             return "strong joint interaction"
 
-        # обычная интеракция: есть устойчивое пространственное соседство
         if (
                 shared_count >= self.min_shared_frames_for_interaction
                 and (
@@ -491,8 +508,8 @@ class SceneObjectsSummarizer:
         return None
 
     def _describe_position(self, first_bbox, last_bbox):
-        first_pos = self._bbox_horizontal_zone(first_bbox)
-        last_pos = self._bbox_horizontal_zone(last_bbox)
+        first_pos = self._bbox_grid_position(first_bbox)
+        last_pos = self._bbox_grid_position(last_bbox)
 
         if first_pos == last_pos:
             return f"stays mostly in the {first_pos} part of the scene"
@@ -517,14 +534,36 @@ class SceneObjectsSummarizer:
         height = max(0.0, bbox["y2"] - bbox["y1"])
         return width * height
 
+    def _bbox_grid_position(self, bbox):
+        horizontal = self._bbox_horizontal_zone(bbox)
+        vertical = self._bbox_vertical_zone(bbox)
+
+        if vertical == "middle" and horizontal == "center":
+            return "center"
+
+        return f"{vertical}-{horizontal}"
+
     def _bbox_horizontal_zone(self, bbox):
         center_x = self._bbox_center_x(bbox)
+        frame_width = self.frame_width or max(bbox["x2"], 1.0)
 
-        if center_x < 106:
-            return "left"
-        if center_x > 213:
-            return "right"
-        return "center"
+        return self._third_zone(center_x, frame_width, "left", "center", "right")
+
+    def _bbox_vertical_zone(self, bbox):
+        center_y = self._bbox_center_y(bbox)
+        frame_height = self.frame_height or max(bbox["y2"], 1.0)
+
+        return self._third_zone(center_y, frame_height, "top", "middle", "bottom")
+
+    def _third_zone(self, value, size, first_label, middle_label, last_label):
+        first_boundary = size / 3.0
+        second_boundary = size * 2.0 / 3.0
+
+        if value < first_boundary:
+            return first_label
+        if value > second_boundary:
+            return last_label
+        return middle_label
 
     def _bbox_iou(self, bbox1, bbox2):
         x_left = max(bbox1["x1"], bbox2["x1"])

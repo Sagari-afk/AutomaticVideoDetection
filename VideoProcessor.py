@@ -308,9 +308,21 @@ class VideoProcessor:
 
     def load_objects(self, object_detections_path):
         scene_objects = {}
-        content = etree.iterparse(object_detections_path, events=("end",), tag="frame")
+        frame_width = None
+        frame_height = None
+
+        content = etree.iterparse(object_detections_path, events=("end",), tag=("resolution", "frame"))
 
         for event, elem in content:
+            if elem.tag == "resolution":
+                width_text = elem.findtext("width")
+                height_text = elem.findtext("height")
+                if width_text and height_text:
+                    frame_width = float(width_text)
+                    frame_height = float(height_text)
+                elem.clear()
+                continue
+
             frame_id = int(elem.find("id").text)
             detections = []
 
@@ -329,7 +341,9 @@ class VideoProcessor:
                 detections.append({
                     "object": obj_name,
                     "confidence": confidence,
-                    "bbox": bbox
+                    "bbox": bbox,
+                    "frame_width": frame_width,
+                    "frame_height": frame_height,
                 })
 
             scene_objects[frame_id] = detections

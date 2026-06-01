@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 class ObjectDetector:
     @staticmethod
-    def get_object_detections(image_path, treshold=0.2, image_size=1920):
+    def get_object_detections(image_path, treshold=0.15, image_size=1920):
         norm_path = image_path.replace("\\", "/")
         video_p = Path(norm_path)
         stem = video_p.stem
@@ -15,6 +15,7 @@ class ObjectDetector:
         root = ET.Element("video_object_detection")
 
         frame_id = 1
+        resolution_written = False
         try:
             device = 0 if torch.cuda.is_available() else "cpu"
 
@@ -28,6 +29,15 @@ class ObjectDetector:
             )
             # print(results[0].show())
             for r in results:
+                if not resolution_written:
+                    orig_shape = getattr(r, "orig_shape", None)
+                    if orig_shape:
+                        height, width = orig_shape[:2]
+                        resolution_el = ET.SubElement(root, "resolution")
+                        ET.SubElement(resolution_el, "width").text = str(int(width))
+                        ET.SubElement(resolution_el, "height").text = str(int(height))
+                        resolution_written = True
+
                 frame_el = ET.SubElement(root, "frame")
                 ET.SubElement(frame_el, "id").text = str(frame_id)
 
