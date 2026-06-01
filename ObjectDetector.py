@@ -1,3 +1,4 @@
+from sympy.printing.pytorch import torch
 from ultralytics import YOLO
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -15,13 +16,15 @@ class ObjectDetector:
 
         frame_id = 1
         try:
+            device = 0 if torch.cuda.is_available() else "cpu"
+
             # TODO: Implement running YOLO on GPU
             results = model.predict(
                 source=image_path,
                 conf=treshold,
                 imgsz=image_size,
                 stream=True,
-                device=0,
+                device=device,
             )
             # print(results[0].show())
             for r in results:
@@ -80,5 +83,5 @@ class ObjectDetector:
         return xml_out
 
 
-if __name__ == "__main__":
-    ObjectDetector.get_object_detections(r'C:\Users\Remote_student\Documents\testIMG.png')
+# if __name__ == "__main__":
+#     ObjectDetector.get_object_detections(r'C:\Users\Remote_student\Documents\testIMG.png')

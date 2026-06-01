@@ -1,4 +1,4 @@
 HOST = "localhost"
 USER = "root"
-PASSWORD = "ingPrPassword123!"
+PASSWORD = "root"
 DATABASE = "video_handler"
