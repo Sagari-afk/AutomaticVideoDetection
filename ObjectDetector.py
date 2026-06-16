@@ -14,6 +14,7 @@ class ObjectDetector:
             scene_ranges=None,
             sample_every_seconds=1.0,
             max_frames_per_scene=30,
+            output_dir=None,
     ):
         norm_path = image_path.replace("\\", "/")
         video_p = Path(norm_path)
@@ -65,8 +66,11 @@ class ObjectDetector:
         except Exception as e:
             raise Exception(f"YOLO detection failed: {e}")
 
-        main_dir = Path(__file__).parent.absolute()
-        xml_out = main_dir / "YOLOv26l" / "runs" / "detect" / f"{stem}_detect.xml"
+        if output_dir is None:
+            main_dir = Path(__file__).parent.absolute()
+            xml_out = main_dir / "YOLOv26l" / "runs" / "detect" / f"{stem}_detect.xml"
+        else:
+            xml_out = Path(output_dir) / f"{stem}_detect.xml"
         xml_out.parent.mkdir(parents=True, exist_ok=True)
 
         tree = ET.ElementTree(root)

@@ -11,6 +11,7 @@
 # words = ["person", "eat", "burger"]
 import math
 import sys
+from collections import Counter
 
 # result = SentenceMaker().connect_sentence(words)
 # print(result)
@@ -43,6 +44,7 @@ class SentenceMaker:
         self.src_language = "en"
         self.tgt_language = "sk"
         self.tokenizer_ts.src_language = self.src_language
+        self.ollama_model = "qwen2.5:14b-instruct"
 
         self.summarizer = SceneObjectsSummarizer()
 
@@ -91,36 +93,36 @@ class SentenceMaker:
     def generate_scene_description(self, scene_objects):
         summary_text = self.summarizer.summarize_for_llm(scene_objects)
         print(summary_text)
+        return self._generate_scene_description_from_summary(scene_objects, summary_text)
 
-        # prompt = f'''
-        #     You are a video scene description model.
-        #     Based on the following scene summary, write a natural and meaningful English description of the whole scene.
-        #     Include the main action and relevant secondary objects if needed.
-        #     {scene_objects}
-        # '''
-        #
-        # inputs = self.tokenizer(
-        #     prompt,
-        #     return_tensors="pt",
-        #     truncation=True,
-        #     max_length=512
-        # )
-        #
-        # torch.cuda.empty_cache()
-        #
-        # inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        #
-        # outputs = self.model.generate(
-        #     input_ids=inputs["input_ids"],
-        #     attention_mask=inputs["attention_mask"],
-        #     max_new_tokens=20,
-        #     temperature=0.3,
-        #     do_sample=True
-        # )
-        # sentence = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        #
-        # print(sentence)
+    def generate_scene_description_objects_only(self, scene_objects):
+        summary_text = self.objects_only_summary(scene_objects)
+        print(summary_text)
+        return self._generate_scene_description_from_summary(scene_objects, summary_text)
 
+    def objects_only_summary(self, scene_objects):
+        counts = Counter()
+        frame_hits = Counter()
+
+        for detections in scene_objects.values():
+            objects_in_frame = set()
+            for detection in detections:
+                obj_name = detection["object"]
+                counts[obj_name] += 1
+                objects_in_frame.add(obj_name)
+            for obj_name in objects_in_frame:
+                frame_hits[obj_name] += 1
+
+        if not counts:
+            return "Objects detected in this scene:\n- No objects were detected."
+
+        lines = ["Objects detected in this scene:"]
+        for obj_name, count in counts.most_common():
+            frames = frame_hits[obj_name]
+            lines.append(f"- {obj_name}: {count} detections across {frames} sampled frames")
+        return "\n".join(lines)
+
+    def _generate_scene_description_from_summary(self, scene_objects, summary_text):
         if not scene_objects:
             return "No objects detected in the image."
 
@@ -166,7 +168,7 @@ class SentenceMaker:
             """
 
         payload = {
-            "model": "qwen2.5:14b-instruct",
+            "model": self.ollama_model,
             "prompt": prompt,
             "stream": False,
             "options": {
@@ -204,10 +206,6 @@ class SentenceMaker:
             print(f"[LLM ERROR] Ollama generation failed: {e}")
 
             return "Failed to generate caption."
-        #
-        # del inputs
-        # del outputs
-        # return sentence
 
 
     def connect_desc(self, sentences):

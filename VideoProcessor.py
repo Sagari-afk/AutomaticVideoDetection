@@ -403,12 +403,13 @@ class VideoProcessor:
         return scene_activities
 
     @staticmethod
-    def run_object_detections(path, threshold, image_size, result_dict, scenes=None):
+    def run_object_detections(path, threshold, image_size, result_dict, scenes=None, output_dir=None):
         object_detections_path = ObjectDetector.get_object_detections(
             path,
             threshold,
             image_size,
             scene_ranges=scenes,
+            output_dir=output_dir,
         )
         result_dict["object"] = object_detections_path
 
