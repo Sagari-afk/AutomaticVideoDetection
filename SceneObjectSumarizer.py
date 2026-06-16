@@ -40,6 +40,7 @@ class SceneObjectsSummarizer:
         self.frame_height = None
         self.grid_columns = ("left", "center", "right")
         self.grid_rows = ("top", "middle", "bottom")
+        self.depth_layers = ("foreground", "midground", "background")
 
     def summarize_scene_objects(self, scene_objects):
         self._update_frame_size(scene_objects)
@@ -132,7 +133,7 @@ class SceneObjectsSummarizer:
         lines.append("")
         lines.append("Notes:")
         lines.append("- Short or low-confidence detections are ignored.")
-        lines.append("- Spatial regions are estimated from object bounding boxes over a 3x3 frame grid.")
+        lines.append("- Spatial regions are estimated from object bounding boxes over a 3x3x3 frame grid, including approximate depth.")
 
         return "\n".join(lines)
 
@@ -257,29 +258,31 @@ class SceneObjectsSummarizer:
         if first_region == last_region:
             if first_region == "large area of the frame":
                 return "covers a large area of the frame"
-            return f"stays mostly in the {first_region}"
+            return f"stays mostly {first_region}"
 
         return f"moves from the {first_region} to the {last_region}"
 
     def _simplified_bbox_region(self, bbox):
+        layer = self._bbox_depth_layer(bbox)
+        layer_phrase = self._depth_layer_phrase(layer)
         rows, columns = self._bbox_grid_parts(bbox)
         cell_count = len(rows) * len(columns)
 
         if cell_count >= 6:
-            return "large area of the frame"
+            return f"{layer_phrase} across a large area of the frame"
 
         if "left" in columns and "right" not in columns:
-            horizontal = "left side of the frame"
+            horizontal = "on the left side of the frame"
         elif "right" in columns and "left" not in columns:
-            horizontal = "right side of the frame"
+            horizontal = "on the right side of the frame"
         else:
-            horizontal = "center of the frame"
+            horizontal = "near the center of the frame"
 
         if len(rows) == 1 and rows[0] != "middle":
             vertical = "upper" if rows[0] == "top" else "lower"
-            return f"{vertical} {horizontal}"
+            return f"{layer_phrase} in the {vertical} area {horizontal}"
 
-        return horizontal
+        return f"{layer_phrase} {horizontal}"
 
     def _movement_change_summary(self, track, obj_name):
         detections = track["detections"]
@@ -292,13 +295,13 @@ class SceneObjectsSummarizer:
         last_area = self._bbox_area(last_bbox)
 
         screen_movement = self._screen_movement_summary(dx, dy)
-        scale_change, interpretation = self._scale_change_summary(first_area, last_area)
+        depth_change = self._depth_and_scale_change_summary(first_bbox, last_bbox, first_area, last_area)
         subject = self._sentence_start_object(obj_name)
 
-        if scale_change and screen_movement == "stays mostly stable on screen":
-            return f"{subject} {screen_movement}, but {scale_change}, suggesting it may be {interpretation}."
-        if scale_change:
-            return f"{subject} {screen_movement} and {scale_change}, suggesting it may be {interpretation}."
+        if depth_change and screen_movement == "stays mostly stable on screen":
+            return f"{subject} {screen_movement}, but {depth_change}."
+        if depth_change:
+            return f"{subject} {screen_movement} and {depth_change}."
         return f"{subject} {screen_movement}."
 
     def _screen_movement_summary(self, dx, dy):
@@ -331,6 +334,36 @@ class SceneObjectsSummarizer:
             return "gets smaller", "moving farther away"
         return None, None
 
+    def _depth_and_scale_change_summary(self, first_bbox, last_bbox, first_area=None, last_area=None):
+        if first_area is None:
+            first_area = self._bbox_area(first_bbox)
+        if last_area is None:
+            last_area = self._bbox_area(last_bbox)
+
+        first_layer = self._bbox_depth_layer(first_bbox)
+        last_layer = self._bbox_depth_layer(last_bbox)
+        scale_change, scale_interpretation = self._scale_change_summary(first_area, last_area)
+
+        if first_layer == last_layer:
+            if not scale_change:
+                return None
+            return f"{scale_change} while staying mostly in the {first_layer}, suggesting it may be {scale_interpretation}"
+
+        first_index = self._depth_layer_index(first_layer)
+        last_index = self._depth_layer_index(last_layer)
+        layer_interpretation = "moving closer" if last_index < first_index else "moving farther away"
+        layer_change = f"shifts from the {first_layer} toward the {last_layer}"
+
+        if scale_change:
+            if scale_interpretation == layer_interpretation:
+                return f"{layer_change} and {scale_change}, suggesting it may be {layer_interpretation}"
+            return (
+                f"{layer_change} while it {scale_change}; "
+                f"the depth and scale cues are mixed, so its distance change is uncertain"
+            )
+
+        return f"{layer_change}, suggesting it may be {layer_interpretation}"
+
     def _select_llm_interactions(self, interactions, limit=4):
         high = [item for item in interactions if item.get("confidence") == "high"]
         medium = [item for item in interactions if item.get("confidence") == "medium"]
@@ -350,6 +383,7 @@ class SceneObjectsSummarizer:
         pair = {interaction["track_1_object"], interaction["track_2_object"]}
         overlap_ratio = interaction["iou_hits"] / max(1, interaction["shared_frame_count"])
         relation = self._stable_relative_position_sentence(interaction, obj1, obj2)
+        depth_relation = self._interaction_depth_sentence(interaction, obj1, obj2)
 
         if pair == {"person", "bicycle"}:
             if overlap_ratio >= 0.35 or self._relative_position_share(interaction, "overlapping with") >= 0.35:
@@ -367,8 +401,9 @@ class SceneObjectsSummarizer:
                 f"{self._object_with_article(obj2)}."
             )
 
-        if relation:
-            return f"{base} {relation}"
+        details = [detail for detail in (relation, depth_relation) if detail]
+        if details:
+            return f"{base} {' '.join(details)}"
         return base
 
     def _stable_relative_position_sentence(self, interaction, obj1, obj2):
@@ -390,6 +425,22 @@ class SceneObjectsSummarizer:
         if total <= 0:
             return 0.0
         return counts.get(relation, 0) / total
+
+    def _interaction_depth_sentence(self, interaction, obj1, obj2):
+        layer_1 = interaction.get("track_1_depth_layer")
+        layer_2 = interaction.get("track_2_depth_layer")
+        same_depth_ratio = interaction.get("same_depth_ratio", 0.0)
+
+        if not layer_1 or not layer_2:
+            return None
+
+        if layer_1 == layer_2 and same_depth_ratio >= 0.6:
+            return f"Both objects are mostly in the {layer_1}."
+
+        if same_depth_ratio < 0.4:
+            return f"The {obj1} is mostly in the {layer_1}, while the {obj2} is mostly in the {layer_2}."
+
+        return None
 
     def _object_with_article(self, obj_name):
         article = "an" if obj_name[:1].lower() in "aeiou" else "a"
@@ -577,6 +628,9 @@ class SceneObjectsSummarizer:
                     "relative_position": stats["relative_position"],
                     "relative_position_ratio": stats["relative_position_ratio"],
                     "relative_position_counts": stats["relative_position_counts"],
+                    "track_1_depth_layer": stats["track_1_depth_layer"],
+                    "track_2_depth_layer": stats["track_2_depth_layer"],
+                    "same_depth_ratio": stats["same_depth_ratio"],
                     "confidence": self._interaction_confidence(stats, interaction_type, len(shared_frames)),
                 })
 
@@ -591,6 +645,7 @@ class SceneObjectsSummarizer:
         iou_values = []
         center_distances = []
         relative_positions = []
+        depth_pairs = []
 
         for frame_id in shared_frames:
             det1 = t1["frame_to_detection"][frame_id]
@@ -605,6 +660,7 @@ class SceneObjectsSummarizer:
             iou_values.append(iou)
             center_distances.append(dist)
             relative_positions.append(self._bbox_relative_position(bbox1, bbox2))
+            depth_pairs.append((self._bbox_depth_layer(bbox1), self._bbox_depth_layer(bbox2)))
 
             if iou >= self.interaction_iou_threshold:
                 iou_hits += 1
@@ -617,6 +673,9 @@ class SceneObjectsSummarizer:
         same_direction_ratio = self._pair_same_direction_ratio(t1, t2)
         relative_counter = Counter(relative_positions)
         relative_position, relative_hits = relative_counter.most_common(1)[0]
+        depth_1_counter = Counter(pair[0] for pair in depth_pairs)
+        depth_2_counter = Counter(pair[1] for pair in depth_pairs)
+        same_depth_hits = sum(1 for pair in depth_pairs if pair[0] == pair[1])
 
         return {
             "iou_hits": iou_hits,
@@ -627,6 +686,9 @@ class SceneObjectsSummarizer:
             "relative_position": relative_position,
             "relative_position_ratio": relative_hits / len(relative_positions),
             "relative_position_counts": dict(relative_counter),
+            "track_1_depth_layer": depth_1_counter.most_common(1)[0][0],
+            "track_2_depth_layer": depth_2_counter.most_common(1)[0][0],
+            "same_depth_ratio": same_depth_hits / len(depth_pairs),
         }
 
     def _infer_interaction_type(self, t1, t2, stats, shared_frames):
@@ -714,6 +776,8 @@ class SceneObjectsSummarizer:
         return (
             f"{t} between {obj1} track {id1} and {obj2} track {id2}; "
             f"{obj1} is usually {interaction['relative_position']} {obj2}; "
+            f"depth: {obj1} mostly {interaction.get('track_1_depth_layer', 'unknown')}, "
+            f"{obj2} mostly {interaction.get('track_2_depth_layer', 'unknown')}; "
             f"shared frames {frames}; "
             f"close in {interaction['close_hits']} frames; "
             f"overlap in {interaction['iou_hits']} frames; "
@@ -739,7 +803,7 @@ class SceneObjectsSummarizer:
 
         movement_x = self._describe_horizontal_motion(dx)
         movement_y = self._describe_vertical_motion(dy)
-        depth_motion = self._describe_depth_motion(first_area, last_area)
+        depth_motion = self._depth_and_scale_change_summary(first_bbox, last_bbox, first_area, last_area)
         position = self._describe_position(first_bbox, last_bbox)
 
         frame_ranges_text = self._format_frame_ranges(frames)
@@ -761,7 +825,7 @@ class SceneObjectsSummarizer:
         if motion_parts:
             parts.append("moves " + " and ".join(motion_parts))
         else:
-            parts.append("remains mostly stationary")
+            parts.append("stays mostly stable on screen")
 
         if depth_motion:
             parts.append(depth_motion)
@@ -834,7 +898,7 @@ class SceneObjectsSummarizer:
         )
 
     def _position_phrase_short(self, position):
-        if position == "whole frame":
+        if "whole frame" in position:
             return "the whole frame"
         if "," in position or " and " in position:
             return f"the {position} parts of the scene"
@@ -863,6 +927,7 @@ class SceneObjectsSummarizer:
 
     def _bbox_grid_cells(self, bbox):
         rows, columns = self._bbox_grid_parts(bbox)
+        layer = self._bbox_depth_layer(bbox)
 
         cells = []
         for row in self.grid_rows:
@@ -871,7 +936,7 @@ class SceneObjectsSummarizer:
             for column in self.grid_columns:
                 if column not in columns:
                     continue
-                cells.append(self._grid_cell_name(row, column))
+                cells.append(self._grid_cell_name(row, column, layer))
         return cells
 
     def _bbox_grid_parts(self, bbox):
@@ -932,21 +997,52 @@ class SceneObjectsSummarizer:
             return cells[0]
 
         if len(cells) == 9:
-            return "whole frame"
+            return f"{self._cell_depth_layer(cells[0])} whole frame"
 
         return self._join_words(cells)
 
+    def _cell_depth_layer(self, cell):
+        return cell.split(" ", 1)[0]
+
     def _position_phrase(self, position):
-        if position == "whole frame":
-            return "across the whole frame"
+        if "whole frame" in position:
+            return f"across the {position}"
         if "," in position or " and " in position:
             return f"in the {position} parts of the scene"
         return f"in the {position} part of the scene"
 
-    def _grid_cell_name(self, row, column):
-        if row == "middle" and column == "center":
-            return "center"
-        return f"{row}-{column}"
+    def _grid_cell_name(self, row, column, layer):
+        cell = "center" if row == "middle" and column == "center" else f"{row}-{column}"
+        return f"{layer} {cell}"
+
+    def _bbox_depth_layer(self, bbox):
+        frame_width = self._frame_width_for_bbox(bbox)
+        frame_height = self._frame_height_for_bbox(bbox)
+        frame_area = max(frame_width * frame_height, 1.0)
+        area_ratio = self._bbox_area(bbox) / frame_area
+        height_ratio = max(0.0, bbox["y2"] - bbox["y1"]) / max(frame_height, 1.0)
+        center_y_ratio = self._bbox_center_y(bbox) / max(frame_height, 1.0)
+
+        if area_ratio > 0.18 or height_ratio > 0.55 or (center_y_ratio > 0.70 and area_ratio > 0.05):
+            return "foreground"
+        if area_ratio < 0.03 or height_ratio < 0.18:
+            return "background"
+        return "midground"
+
+    def _depth_layer_phrase(self, layer):
+        if layer == "foreground":
+            return "in the foreground"
+        if layer == "background":
+            return "in the background"
+        return "in the midground"
+
+    def _depth_layer_index(self, layer):
+        order = {
+            "foreground": 0,
+            "midground": 1,
+            "background": 2,
+        }
+        return order.get(layer, 1)
 
     def _bbox_relative_position(self, bbox1, bbox2):
         if self._bbox_iou(bbox1, bbox2) >= self.interaction_iou_threshold:
