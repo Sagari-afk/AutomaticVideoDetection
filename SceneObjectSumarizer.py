@@ -98,7 +98,7 @@ class SceneObjectsSummarizer:
             for track in self._representative_tracks(tracks, limit=3):
                 obj_name = self._readable_object_name(track["object"])
                 visibility = self._visibility_summary(track, total_frames)
-                lines.append(f"- {self._sentence_start_object(obj_name)} is {visibility}.")
+                lines.append(f"- {self._sentence_start_object(obj_name)} {visibility}.")
         else:
             lines.append("- No stable objects were detected.")
 
@@ -223,7 +223,7 @@ class SceneObjectsSummarizer:
 
     def _visibility_summary(self, track, total_frames):
         if total_frames <= 0 or not track["frames"]:
-            return "visible briefly"
+            return "is visible briefly"
 
         frames = sorted(track["frames"])
         detection_count = len(frames)
@@ -235,9 +235,9 @@ class SceneObjectsSummarizer:
         density = detection_count / span
 
         if coverage >= 0.6 or (span_ratio >= 0.8 and density >= 0.45):
-            return "visible throughout most of the video"
+            return "is visible throughout most of the video"
         if detection_count <= max(2, total_frames * 0.08) or coverage < 0.08:
-            return "visible briefly"
+            return "is visible briefly"
         if span_ratio >= 0.35 and density < 0.5:
             return "appears intermittently"
 
@@ -245,10 +245,10 @@ class SceneObjectsSummarizer:
         relative_midpoint = midpoint / max(1, total_frames)
 
         if relative_midpoint < 1.0 / 3.0:
-            return "visible in the first part of the video"
+            return "is visible in the first part of the video"
         if relative_midpoint > 2.0 / 3.0:
-            return "visible in the last part of the video"
-        return "visible in the middle part of the video"
+            return "is visible in the last part of the video"
+        return "is visible in the middle part of the video"
 
     def _simplified_position_summary(self, track):
         first_region = self._simplified_bbox_region(track["detections"][0]["bbox"])
@@ -461,7 +461,26 @@ class SceneObjectsSummarizer:
         return finished_tracks
 
     def _remove_short_tracks(self, tracks):
-        return [t for t in tracks if len(t["frames"]) >= self.min_track_length]
+        min_track_length = self._effective_min_track_length(tracks)
+        return [t for t in tracks if len(t["frames"]) >= min_track_length]
+
+    def _effective_min_track_length(self, tracks):
+        if not tracks:
+            return self.min_track_length
+
+        sampled_frames = {
+            frame_id
+            for track in tracks
+            for frame_id in track["frames"]
+        }
+
+        if not sampled_frames:
+            return self.min_track_length
+
+        # Scene-aware object detection samples only a subset of frames, so the
+        # reliability threshold must scale with the number of analyzed frames.
+        adaptive_length = max(1, math.ceil(len(sampled_frames) * 0.35))
+        return min(self.min_track_length, adaptive_length)
 
     def _merge_fragmented_tracks(self, tracks):
         if not tracks:

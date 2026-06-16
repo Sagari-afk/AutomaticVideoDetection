@@ -64,13 +64,15 @@ class VideoProcessor:
                 if shot_detections_path is None:
                     shot_detections_path = self.get_scenes(path, saving_path)
                     self.save_detections(video_id, shot_detections_path, Detection_type.SHOT.value)
+                scenes_for_detection = self.load_scenes(shot_detections_path)
 
                 obj_detect_need = True if object_detections_path is None else False
                 act_detect_need = True if activity_detections_path is None else False
                 self.close_db()
                 object_detections_path, activity_detections_path = (
                     self.process_objects_n_activities(path, threshold, image_size,
-                                                      object_detections_path, activity_detections_path))
+                                                      object_detections_path, activity_detections_path,
+                                                      scenes_for_detection))
                 self.load_database()
                 object_detections_path = str(object_detections_path)
                 activity_detections_path = str(activity_detections_path)
@@ -95,6 +97,7 @@ class VideoProcessor:
             for scene in scenes:
                 start_frame = scene[0]
                 end_frame = scene[1]
+                scene_objects_for_scene = self.filter_objects_by_frame_range(scene_objects, start_frame, end_frame)
                 uniq_objects = set()
                 uniq_activities = set()
                 # unique_desc_data = set()
@@ -142,7 +145,19 @@ class VideoProcessor:
                 #     generated_desc2 = None
                 #     generated_desc3 = None
 
-                desc1 = self.description_generator.generate_scene_description(scene_objects)
+                for detections in scene_objects_for_scene.values():
+                    for detection in detections:
+                        uniq_objects.add(detection["object"])
+
+                if scene_activities:
+                    scene_activities_for_scene = self.filter_activities_by_frame_range(
+                        scene_activities,
+                        start_frame,
+                        end_frame,
+                    )
+                    uniq_activities.update(scene_activities_for_scene.values())
+
+                desc1 = self.description_generator.generate_scene_description(scene_objects_for_scene)
 
                 scene_contents.append({
                     "start_frame": start_frame,
@@ -162,7 +177,14 @@ class VideoProcessor:
             return
 
     @staticmethod
-    def process_objects_n_activities(path, threshold, image_size, object_detections_path, activity_detections_path):
+    def process_objects_n_activities(
+            path,
+            threshold,
+            image_size,
+            object_detections_path,
+            activity_detections_path,
+            scenes=None,
+    ):
         print("STARTED AND OBJECT DETECTION")
         processes = []
 
@@ -170,7 +192,7 @@ class VideoProcessor:
         # result_dict = result_manager.dict()
         result_dict = {"object": "", "activity": ""}
         if object_detections_path is None:
-            VideoProcessor.run_object_detections(path, threshold, image_size, result_dict)
+            VideoProcessor.run_object_detections(path, threshold, image_size, result_dict, scenes)
             # process_yolo = multiprocessing.Process(target=VideoProcessor.run_object_detections, args=(path,
             #                                                                                         threshold,
             #                                                                                         image_size,
@@ -351,6 +373,22 @@ class VideoProcessor:
 
         return scene_objects
 
+    @staticmethod
+    def filter_objects_by_frame_range(scene_objects, start_frame, end_frame):
+        return {
+            frame_id: detections
+            for frame_id, detections in scene_objects.items()
+            if start_frame <= frame_id <= end_frame
+        }
+
+    @staticmethod
+    def filter_activities_by_frame_range(scene_activities, start_frame, end_frame):
+        return {
+            frame_id: activity
+            for frame_id, activity in scene_activities.items()
+            if start_frame <= frame_id <= end_frame
+        }
+
     def load_activities(self, activity_detections_path):
         scene_activities = {}
         content = etree.iterparse(activity_detections_path, events=("end",), tag="frame")
@@ -365,8 +403,13 @@ class VideoProcessor:
         return scene_activities
 
     @staticmethod
-    def run_object_detections(path, threshold, image_size, result_dict):
-        object_detections_path = ObjectDetector.get_object_detections(path, threshold, image_size)
+    def run_object_detections(path, threshold, image_size, result_dict, scenes=None):
+        object_detections_path = ObjectDetector.get_object_detections(
+            path,
+            threshold,
+            image_size,
+            scene_ranges=scenes,
+        )
         result_dict["object"] = object_detections_path
 
     @staticmethod

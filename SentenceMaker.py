@@ -89,7 +89,7 @@ class SentenceMaker:
         print(f"[LLM] Ollama server is running.")
 
     def generate_scene_description(self, scene_objects):
-        summary_text = self.summarizer.summarize_scene_objects(scene_objects)
+        summary_text = self.summarizer.summarize_for_llm(scene_objects)
         print(summary_text)
 
         # prompt = f'''
@@ -130,7 +130,8 @@ class SentenceMaker:
             for detection in detections:
                 objects.append(detection["object"])
 
-        print(objects)
+        if not objects:
+            return "No objects detected in the image."
 
         print("Objects detected: ", objects)
 
