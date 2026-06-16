@@ -135,53 +135,29 @@ class SentenceMaker:
         print("Objects detected: ", objects)
 
         prompt = f"""
-            You are an action-oriented video captioning assistant.
+            You are a video captioning assistant.
             
-            Your task is to convert a technical scene summary into one natural, coherent video description.
+            Convert the technical scene summary into one natural video description.
             
-            The technical summary may contain object tracks, repeated detections, fragmented tracks, approximate positions, movement hints, and possible interactions. These are only intermediate signals. Do not describe them directly. Instead, infer the most likely scene-level activity.
+            The summary may include tracks, object categories, approximate movement, positions, and possible interactions. Treat these as imperfect signals, not as facts to repeat directly.
             
-            Interpretation guidelines:
+            Rules:
             
-            1. First identify the main visible participants or groups.
-            2. Group tracks that likely belong to the same real-world activity, especially when they:
+            * Output only the final video description.
+            * Write one paragraph of 2–4 sentences.
+            * Do not mention tracks, frame numbers, confidence, bounding boxes, grids, detections, thresholds, or technical terms.
+            * Do not list objects one by one.
+            * Do not invent details that are not supported by the summary.
+            * Do not add background, weather, emotions, colors, locations, or dramatic actions unless clearly supported.
+            * Do not claim definite physical contact unless the summary strongly supports it.
+            * If the evidence is uncertain, use cautious wording such as “appears to,” “seems to,” “likely,” or “may.”
+            * If multiple related objects overlap, stay close, or move together, describe the likely shared activity.
+            * Prefer scene-level actions over object-by-object descriptions.
             
-               * overlap for many frames,
-               * appear during the same part of the video,
-               * move in similar directions,
-               * stay close to each other,
-               * have a plausible real-world relationship, such as a person with a bicycle.
-            3. Treat long-lasting overlap between a person and a bicycle as a strong cue that the person may be riding, pushing, standing with, or otherwise closely associated with the bicycle.
-            4. Use repeated person-bicycle overlaps to describe likely people with bicycles, instead of listing separate people and separate bicycles.
-            5. Convert technical observations into natural actions and relationships.
-            6. Prefer meaningful activity descriptions over coordinate-based descriptions.
-            7. If the evidence is uncertain, use cautious wording such as “appears to,” “seems to,” “likely,” or “may.”
-            8. If the scene contains multiple similar participants, describe them as a group when appropriate, for example “several people with bicycles,” “a group of cyclists,” or “people moving with their bicycles.”
-            9. If objects become larger or smaller, interpret this cautiously as approaching or receding only when it fits the rest of the scene.
-            10. If an object remains in a similar area of the frame, do not automatically say it is stationary; the camera or scene may be moving.
+            Use natural verbs such as:
+            moves, approaches, recedes, follows, passes, continues, stays near, moves together, remains alongside, appears connected to.
             
-            Hard constraints:
-            
-            * Output only the final caption paragraph.
-            * Write exactly one polished paragraph of 3–5 sentences.
-            * Do not list tracks one by one.
-            * Do not mention track IDs, frame numbers, detection counts, confidence values, thresholds, IoU, bounding boxes, grids, or screen-cell names.
-            * Do not over-focus on left/right/top/bottom positions unless they are essential to the action.
-            * Do not claim definite physical contact unless the summary clearly supports it.
-            * Do not invent dramatic or unsupported events.
-            * Do not describe the video as a technical detection result.
-            * Do not use phrases like “the summary shows,” “the detector detects,” or “track 0.”
-            
-            Use natural action verbs when appropriate:
-            moves, travels, proceeds, follows, leads, approaches, passes, continues, recedes, advances, stays near, remains alongside, appears connected to, moves together with, crosses, enters, leaves, accompanies, interacts.
-            
-            Reasoning priority:
-            
-            * Prefer a scene-level interpretation over object-by-object description.
-            * Prefer “moving together” or “remaining close together” when several associated objects share timing and relative position.
-            * Prefer cautious wording over unsupported certainty.
-            
-            Input technical scene summary:
+            Technical scene summary:
             {summary_text}
             
             Final video description:
@@ -189,7 +165,7 @@ class SentenceMaker:
             """
 
         payload = {
-            "model": "mistral-small:24b",
+            "model": "qwen2.5:14b-instruct",
             "prompt": prompt,
             "stream": False,
             "options": {
